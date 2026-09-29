@@ -65,18 +65,65 @@ def prepare_urdf(doosan_repo, out_dir, base_name="a0509_base"):
 
 
 def check_robotiq_lfs(robotiq_repo):
-    parts = os.path.join(robotiq_repo, "grippers", "Robotiq_2F_85", "parts")
+    asset = os.path.join(robotiq_repo, "grippers", "Robotiq_2F_85")
+    if not os.path.isfile(os.path.join(robotiq_repo, ROBOTIQ_CFG_REL)):
+        raise FileNotFoundError(f"Robotiq asset missing: {os.path.join(robotiq_repo, ROBOTIQ_CFG_REL)}")
     bad = []
-    for f in os.listdir(parts):
-        p = os.path.join(parts, f)
-        with open(p, "rb") as fh:
-            head = fh.read(64)
-        if head.startswith(b"version https://git-lfs"):
-            bad.append(f)
+    for directory, _, files in os.walk(asset):
+        for f in files:
+            p = os.path.join(directory, f)
+            with open(p, "rb") as fh:
+                if fh.read(64).startswith(b"version https://git-lfs"):
+                    bad.append(os.path.relpath(p, robotiq_repo))
     if bad:
         raise RuntimeError(
             f"Robotiq meshes are Git LFS pointer stubs ({', '.join(bad)}). Run 'git lfs install && git lfs pull' in {robotiq_repo}."
         )
+
+
+def bundle_robotiq(robotiq_repo, out_dir):
+    """Copy the upstream asset tree so its relative USD references survive moving the generated bundle."""
+    source = os.path.realpath(robotiq_repo)
+    bundled = os.path.realpath(os.path.join(out_dir, "vendor", "robotiq"))
+    if os.path.commonpath((source, bundled)) == source:
+        raise ValueError("the generated asset directory cannot be inside the Robotiq checkout")
+    check_robotiq_lfs(source)
+    if os.path.islink(bundled):
+        raise ValueError(f"refusing to replace a symlink: {bundled}")
+    if os.path.exists(bundled):
+        shutil.rmtree(bundled)
+    shutil.copytree(source, bundled, ignore=shutil.ignore_patterns(".git", "__pycache__", ".pytest_cache"))
+    return bundled
+
+
+def validate_asset_bundle(out_dir, usd_paths):
+    """Fail if a generated USD refers to a missing file or anything outside the bundle."""
+    from pxr import Sdf, UsdUtils
+
+    root = os.path.realpath(out_dir)
+    report = {}
+    for usd in usd_paths:
+        usd = os.path.realpath(usd)
+        if not os.path.isfile(usd):
+            raise FileNotFoundError(usd)
+        if os.path.commonpath((root, usd)) != root:
+            raise RuntimeError(f"USD is outside the asset bundle: {usd}")
+        layers, assets, unresolved = UsdUtils.ComputeAllDependencies(Sdf.AssetPath(usd))
+        if unresolved:
+            raise RuntimeError(f"unresolved dependencies in {usd}: {list(unresolved)}")
+        dependencies = [layer.realPath for layer in layers] + list(assets)
+        outside = [str(p) for p in dependencies if not os.path.isabs(str(p)) or
+                   os.path.commonpath((root, os.path.realpath(str(p)))) != root]
+        if outside:
+            raise RuntimeError(f"dependencies outside the asset bundle in {usd}: {outside}")
+        absolute_refs = []
+        for layer in layers:
+            sublayers, references, payloads = UsdUtils.ExtractExternalReferences(layer.realPath)
+            absolute_refs += [p for p in sublayers + references + payloads if os.path.isabs(p) or "://" in p]
+        if absolute_refs:
+            raise RuntimeError(f"non-portable authored USD paths in {usd}: {sorted(set(absolute_refs))}")
+        report[os.path.relpath(usd, root)] = {"layers": len(layers), "assets": len(assets)}
+    return report
 
 
 def convert_arm(urdf_path, usd_dir, force=True, collision_type="Convex Hull", stiffness=None, damping=None):
