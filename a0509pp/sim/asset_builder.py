@@ -171,6 +171,23 @@ def _find(stage, root_path, name, api=None):
     return hits
 
 
+def _set_pose_ops(prim, pos, quat):
+    """Translate + orient ops whose precision matches any xformOp already authored on the prim (quatf vs quatd)."""
+    from pxr import Gf, Sdf, UsdGeom
+
+    def precision(name, float_type):
+        a = prim.GetAttribute(name)
+        return UsdGeom.XformOp.PrecisionFloat if a and a.GetTypeName() == float_type else UsdGeom.XformOp.PrecisionDouble
+
+    xf = UsdGeom.Xformable(prim)
+    xf.ClearXformOpOrder()
+    pt = precision("xformOp:translate", Sdf.ValueTypeNames.Float3)
+    po = precision("xformOp:orient", Sdf.ValueTypeNames.Quatf)
+    xf.AddTranslateOp(pt).Set((Gf.Vec3f if pt == UsdGeom.XformOp.PrecisionFloat else Gf.Vec3d)(*pos))
+    q = (Gf.Quatf if po == UsdGeom.XformOp.PrecisionFloat else Gf.Quatd)(quat.GetReal(), *quat.GetImaginary())
+    xf.AddOrientOp(po).Set(q)
+
+
 def _rel(path, root):
     s = str(path)
     return s[len(root) + 1:] if s.startswith(root + "/") else s
@@ -223,10 +240,7 @@ def build_combined(arm_usd, robotiq_repo, out_path, rcfg, gcfg, ccfg, with_camer
     qyaw = Gf.Quatd(math.cos(yaw / 2), 0.0, 0.0, math.sin(yaw / 2))
     grip = stage.DefinePrim(link6.GetPath().AppendChild("Robotiq_2F_85"), "Xform")
     grip.GetReferences().AddReference(os.path.relpath(robotiq_usd, os.path.dirname(out_path)))
-    xf = UsdGeom.Xformable(grip)
-    xf.ClearXformOpOrder()
-    xf.AddTranslateOp().Set(Gf.Vec3d(0.0, 0.0, t_a))
-    xf.AddOrientOp().Set(qyaw)
+    _set_pose_ops(grip, (0.0, 0.0, t_a), qyaw)
 
     inner = stage.GetPrimAtPath(grip.GetPath().AppendChild("Robotiq_2F_85"))
     if not inner.IsValid():
@@ -374,7 +388,8 @@ def read_mimic(usd_path, joint_rel_paths):
         prim = stage.GetPrimAtPath(root.AppendPath(rel))
         if not prim.IsValid():
             continue
-        for schema in prim.GetAppliedSchemas():
+        listed = prim.GetMetadata("apiSchemas")
+        for schema in set(prim.GetAppliedSchemas()) | set(listed.ApplyOperations([]) if listed else []):
             if not schema.startswith("PhysxMimicJointAPI"):
                 continue
             inst = schema.split(":", 1)[1] if ":" in schema else ""
