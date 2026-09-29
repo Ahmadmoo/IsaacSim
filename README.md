@@ -38,6 +38,7 @@ whenever the camera mode is not `none`. Config values can be changed from any sc
 | Step | Command | What it does | Pass criterion |
 |---|---|---|---|
 | M0 | `python scripts/prepare_assets.py --doosan ~/src/doosan-robot2 --robotiq ~/src/isaacsim_assets` | URDF → USD, mount gripper, adapter and wrist-camera housing, write `assets/generated/asset_manifest.json` | manifest written |
+| — | `python scripts/check_asset_bundle.py` | Check that all USD references resolve inside the generated bundle | no missing or external dependencies |
 | M0 | `python scripts/calibrate_gripper.py` | Measure pad separation vs `finger_joint`; set TCP and home pose | aperture map monotonic, pads parallel |
 | M1 | `python scripts/check_import.py` | Joints, limits, gains, masses, FK vs model, drift, self-contact, mimic coupling, camera images | all checks PASS |
 | — | `python scripts/tune_servo.py --scales 0.5 1 2` | Step responses and tracking error on planned references | worst tracking error < 0.025 rad |
@@ -50,6 +51,15 @@ whenever the camera mode is not `none`. Config values can be changed from any sc
 | M5 | `python scripts/train_baselines.py --data data/pilot` | Analytic score and small MLP; Brier, NLL, ECE, reliability, selection, bootstrap by scene | baselines report |
 
 Reports go to `outputs/<step>/` and the dataset folder. Add `--viz kit` to any Isaac script to watch it.
+
+`prepare_assets.py` copies the Robotiq checkout (without `.git`) into `assets/generated/vendor/robotiq`, then builds the
+arm and combined robot USDs under `assets/generated/usd`. It checks that every USD dependency is inside the generated
+directory and that the authored references are relative. Generate the assets once; subsequent runs use the manifest and
+do not need the Doosan or Robotiq checkouts. After `calibrate_gripper.py`, keep or copy the entire `assets/generated/`
+directory, including `vendor/`, `usd/`, `models/`, and `gripper_calibration.json`. After moving it, run
+`python scripts/check_asset_bundle.py --manifest /path/to/generated/asset_manifest.json`. Pass the same `--manifest`
+path to other scripts when it is not at the default location. The generated directory is ignored by Git; store the
+validated bundle separately if you need to share it across machines.
 
 Offline tools (no Isaac, no GPU):
 
