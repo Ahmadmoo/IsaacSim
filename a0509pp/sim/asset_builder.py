@@ -108,9 +108,22 @@ def validate_asset_bundle(out_dir, usd_paths):
             raise FileNotFoundError(usd)
         if os.path.commonpath((root, usd)) != root:
             raise RuntimeError(f"USD is outside the asset bundle: {usd}")
-        layers, assets, unresolved = UsdUtils.ComputeAllDependencies(Sdf.AssetPath(usd))
+        authored_external = []
+
+        def check_authored_path(layer, dependency):
+            # The callback sees asset-valued attributes (for example textures) as well as
+            # composition arcs. Resolved files alone cannot reveal an absolute path
+            # authored to a file *inside* this bundle, which would break after a move.
+            path = dependency.assetPath
+            if path and path != usd and (os.path.isabs(path) or "://" in path):
+                authored_external.append(path)
+            return dependency
+
+        layers, assets, unresolved = UsdUtils.ComputeAllDependencies(Sdf.AssetPath(usd), check_authored_path)
         if unresolved:
             raise RuntimeError(f"unresolved dependencies in {usd}: {list(unresolved)}")
+        if authored_external:
+            raise RuntimeError(f"non-portable authored USD paths in {usd}: {sorted(set(authored_external))}")
         dependencies = [layer.realPath for layer in layers] + list(assets)
         outside = [str(p) for p in dependencies if not os.path.isabs(str(p)) or
                    os.path.commonpath((root, os.path.realpath(str(p)))) != root]
