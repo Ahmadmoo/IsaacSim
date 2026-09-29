@@ -178,11 +178,14 @@ on its own (full system). Splits are by base scene (70/10/10/10). All views and 
 
 ## 6. Randomization families
 
-Enable with `--families ...` or in the config: `object` (size pool, mass, colour, yaw), `obstacles` (0–3 boxes),
+Enable with `--families ...` or in the config: `object` (block size from the size pool), `object_color`, `object_mass`
+(hidden), `obstacles` (0–3 boxes),
 `object_friction`, `pad_friction`, `servo` (±10 %), `command_delay` (0–2 ticks), `lighting`, `depth` (σ ≤ 3 mm,
 ≤ 3 % dropout), `calibration` (≤ 3 mm, 0.5°), `fixed_camera` (≤ 20 mm, 5°), `joint_noise` (σ ≤ 0.002 rad),
 `camera_delay` (0–1 frame). Start clean, then add one family at a time. `configs/shift_heavy_lowfriction.json` is an
-example held-out shift (0.25–0.40 kg, μ 0.15–0.30).
+example held-out shift (0.25–0.40 kg, μ 0.15–0.30). The block pose is always sampled unless `--fixed-pose` is given.
+To fix a sensor effect at one level instead of switching it off, give it a one-point range, e.g.
+`--set randomization.depth_sigma=[0.002,0.002]`.
 
 ---
 

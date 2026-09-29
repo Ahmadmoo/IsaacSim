@@ -1,7 +1,7 @@
 {
   "collect": {"num_scenes": 100, "realizations": 3, "seed": 1000, "out_dir": "data/shift_heavy_lowfriction",
               "perception_sources": ["camera"]},
-  "randomization": {"enabled": ["object", "obstacles", "object_friction", "pad_friction"],
+  "randomization": {"enabled": ["object", "object_color", "object_mass", "obstacles", "object_friction", "pad_friction"],
                     "object_mass": [0.25, 0.40], "object_static_friction": [0.15, 0.30]},
   "camera": {"mode": "fixed"},
   "num_envs": 24

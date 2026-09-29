@@ -1,6 +1,6 @@
 {
   "collect": {"num_scenes": 1000, "realizations": 3, "seed": 0, "out_dir": "data/pilot_1000", "perception_sources": ["camera"]},
-  "randomization": {"enabled": ["object", "obstacles", "object_friction", "pad_friction", "servo", "command_delay",
+  "randomization": {"enabled": ["object", "object_color", "object_mass", "obstacles", "object_friction", "pad_friction", "servo", "command_delay",
                                 "lighting", "depth", "calibration", "fixed_camera", "joint_noise", "camera_delay"]},
   "camera": {"mode": "fixed"},
   "num_envs": 24

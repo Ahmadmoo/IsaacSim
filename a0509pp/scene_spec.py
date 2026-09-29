@@ -13,7 +13,7 @@ import numpy as np
 from .geometry import box_corners, rot_z
 
 FAMILIES = [
-    "object", "obstacles", "object_friction", "pad_friction", "lighting", "depth", "calibration",
+    "object", "object_color", "object_mass", "obstacles", "object_friction", "pad_friction", "lighting", "depth", "calibration",
     "fixed_camera", "joint_noise", "command_delay", "camera_delay", "servo",
 ]
 HIDDEN_FAMILIES = {"object_friction", "pad_friction", "servo", "command_delay", "object_mass"}
@@ -162,7 +162,7 @@ class SceneSampler:
         r = Realization(rid=rid, object_mass=self.cfg.layout.target_default_mass,
                         object_static_friction=P.object_static_friction, object_dynamic_friction=P.object_dynamic_friction,
                         pad_static_friction=P.pad_static_friction, pad_dynamic_friction=P.pad_dynamic_friction)
-        if "object" in families or "object_mass" in families:
+        if "object_mass" in families:
             r.object_mass = float(rng.uniform(*R.object_mass))
         if "object_friction" in families:
             mu = _quant(rng.uniform(*R.object_static_friction), R.friction_quantum)
@@ -178,7 +178,7 @@ class SceneSampler:
 
     def sample(self, index: int, seed: int, families=None, fixed_pose=False, num_realizations=1, max_tries=200):
         families = list(self.R.enabled if families is None else families)
-        unknown = set(families) - set(FAMILIES) - {"object_mass"}
+        unknown = set(families) - set(FAMILIES)
         if unknown:
             raise ValueError(f"unknown randomization families: {unknown}")
         rng = np.random.default_rng([seed, index])
@@ -191,7 +191,7 @@ class SceneSampler:
             else:
                 xy = [float(rng.uniform(*self.L.target_x_range)), float(rng.uniform(*self.L.target_y_range))]
                 yaw = float(rng.uniform(0.0, 2 * math.pi))
-            color = rng.uniform(0.1, 0.95, 3).round(3).tolist() if "object" in families else [0.85, 0.20, 0.15]
+            color = rng.uniform(0.1, 0.95, 3).round(3).tolist() if "object_color" in families else [0.85, 0.20, 0.15]
             target = ObjectSpec(k, list(dims), xy, yaw, color)
             obstacles = []
             if "obstacles" in families:

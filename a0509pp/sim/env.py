@@ -398,7 +398,7 @@ class PickPlaceEnv:
                 if a and a.IsValid():
                     qt = Gf.Quatf if "quatf" in str(a.GetTypeName()) else Gf.Quatd
                     a.Set(qt(float(q[3]), float(q[0]), float(q[1]), float(q[2])))
-            if "object" in spec.families:
+            if "object_color" in spec.families:
                 k = spec.target.pool_index
                 if not hasattr(self, "_color_attrs"):
                     self._color_attrs = {}
@@ -975,7 +975,7 @@ class PickPlaceEnv:
         ann = {k: v for k, v in self.obs["annotation"].items()}
         ann_json = {"spec": json.loads(spec.to_json()), "initial_condition": self.ic, "ic_validation": self.ic_report,
                     "settle": self.settle_info, "home": {"q": self.home_q.tolist(), **self.home_info},
-                    "hidden_families": sorted(set(spec.families) & {"object_friction", "pad_friction", "servo", "command_delay", "object"}),
+                    "hidden_families": sorted(set(spec.families) & {"object_friction", "pad_friction", "servo", "command_delay", "object_mass"}),
                     "provisional_parameters": PROVISIONAL}
         cams = list(self.cams)
         views = cams if views is None else list(views)
