@@ -15,7 +15,7 @@ from .gripper_model import GripperModel
 from .kinematics import ArmModel
 
 
-MANIFEST_PATH_KEYS = ("robot_usd", "robot_usd_no_camera", "arm_usd", "gripper_calibration", "kinematics_json",
+MANIFEST_PATH_KEYS = ("robot_usd", "robot_usd_no_camera", "arm_usd", "robotiq_usd", "gripper_calibration", "kinematics_json",
                       "arm_spheres_json")
 
 
