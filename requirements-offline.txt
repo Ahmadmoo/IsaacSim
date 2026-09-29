@@ -1,0 +1,9 @@
+# Only for the GPU-free tools outside Isaac Lab (selftest_offline.py, train_baselines.py, fit_arm_spheres.py).
+# Inside the Isaac Lab environment nothing extra is needed.
+numpy>=1.26
+scipy>=1.11
+h5py>=3.10
+matplotlib>=3.8
+trimesh>=4.0        # fit_arm_spheres.py
+python-fcl>=0.7     # fit_arm_spheres.py (pair offsets)
+pycollada>=0.8      # fit_arm_spheres.py (.dae meshes)

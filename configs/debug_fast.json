@@ -1,0 +1,6 @@
+{
+  "collect": {"num_scenes": 5, "realizations": 1, "seed": 0, "out_dir": "data/debug", "perception_sources": ["privileged"]},
+  "randomization": {"enabled": []},
+  "camera": {"mode": "none"},
+  "num_envs": 8
+}
