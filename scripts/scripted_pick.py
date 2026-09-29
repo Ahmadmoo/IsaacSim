@@ -7,6 +7,7 @@ candidates, executes one with nominal physics, and scores the section 11 task la
     python scripts/scripted_pick.py --trials 100 --random-pose
     python scripts/scripted_pick.py --perception privileged --camera-mode none
     python scripts/scripted_pick.py --trials 3 --viz kit
+    python scripts/scripted_pick.py --trials 3 --perception privileged --camera-mode both --viz kit --show-cams
 """
 
 import argparse
@@ -29,6 +30,8 @@ parser.add_argument("--jitter", type=float, nargs=2, default=[0.01, 10.0], metav
 parser.add_argument("--perception", default=None, choices=["camera", "privileged"])
 parser.add_argument("--select", default="shortest", choices=["shortest", "first", "clearance"])
 parser.add_argument("--out", default=os.path.join(ROOT, "outputs", "m2"))
+parser.add_argument("--show-cams", action="store_true", help="live RGB | depth window of every camera (PNGs if OpenCV has no GUI)")
+parser.add_argument("--show-hz", type=float, default=10.0)
 AppLauncher.add_app_launcher_args(parser)
 args = parser.parse_args()
 cfg = cfg_from_args(args)
@@ -40,13 +43,40 @@ import time  # noqa: E402
 
 import numpy as np  # noqa: E402
 
-from a0509pp.cli import write_report  # noqa: E402
+from a0509pp.cli import save_png, write_report  # noqa: E402
 from a0509pp.scene_spec import default_spec  # noqa: E402
 from a0509pp.sim.env import PickPlaceEnv  # noqa: E402
 
 src = args.perception or ("privileged" if cfg.camera.mode == "none" else cfg.perception.mode)
 env = PickPlaceEnv(cfg, num_envs=1, camera_mode=cfg.camera.mode)
 rng = np.random.default_rng(args.seed)
+if args.show_cams:
+    if not env.cams:
+        parser.error("--show-cams needs --camera-mode fixed, wrist or both")
+    try:
+        import cv2
+    except ImportError:
+        cv2 = None
+
+    def show(frames):
+        rows = []
+        for f in frames.values():
+            d = f["depth"].astype(np.float32)
+            v = np.isfinite(d) & (d > 0)
+            lo, hi = np.percentile(d[v], [1, 99]) if v.any() else (0.0, 1.0)
+            g = np.where(v, 255 - np.clip((d - lo) / max(hi - lo, 1e-6), 0, 1) * 255, 0).astype(np.uint8)
+            dimg = cv2.applyColorMap(g, cv2.COLORMAP_TURBO)[..., ::-1] if cv2 else np.repeat(g[..., None], 3, 2)
+            rows.append(np.hstack([f["rgb"], dimg]))
+        img = np.vstack(rows)
+        try:
+            cv2.imshow("cameras: RGB | depth", img[..., ::-1])
+            cv2.waitKey(1)
+        except Exception:
+            save_png(os.path.join(args.out, "cams", f"{show.n:05d}.png"), img)
+        show.n += 1
+
+    show.n = 0
+    env.on_frame, env.live_hz = show, args.show_hz
 pick = {"first": lambda cs: cs[0], "shortest": lambda cs: min(cs, key=lambda c: c.duration),
         "clearance": lambda cs: max(cs, key=lambda c: min(c.clearance.get("env_min", 0.0), c.clearance.get("self_min", 0.0)))}
 rows, fails = [], {}

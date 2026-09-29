@@ -847,6 +847,8 @@ class PickPlaceEnv:
         cam = "fixed_camera" if "fixed_camera" in self.cams else next(iter(self.cams), None)
         vdec = max(1, int(round(1.0 / (cfg.collect.video_hz * dt))))
         vids = [[] for _ in range(E)]
+        live = getattr(self, "on_frame", None) if self.cams else None  # viewer callback: {camera: {rgb, depth, K}} of env 0
+        ldec = max(1, int(round(1.0 / (getattr(self, "live_hz", 10.0) * dt))))
         t_wall = time.time()
         for k in range(n_max):
             idx = np.clip(k - delays, 0, T - 1)
@@ -886,6 +888,8 @@ class PickPlaceEnv:
                 fr = self._grab_frames(cam)
                 for e in np.flatnonzero(~done):
                     vids[e].append((t, fr[e]))
+            if live and k % ldec == 0:
+                live(self._render_cameras())
             for e in np.flatnonzero(~done):
                 aborted = mon.state[e].aborted
                 settled = plan_done[e] and calm[e] >= n_hold
