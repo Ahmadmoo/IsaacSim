@@ -120,6 +120,8 @@ def validate_asset_bundle(out_dir, usd_paths):
             return dependency
 
         layers, assets, unresolved = UsdUtils.ComputeAllDependencies(Sdf.AssetPath(usd), check_authored_path)
+        # Bare MDL names (OmniPBR.mdl, OmniSurface.mdl, ...) are Kit core materials found on the MDL search path.
+        unresolved = [p for p in unresolved if not (str(p).endswith(".mdl") and "/" not in str(p) and "\\" not in str(p))]
         if unresolved:
             raise RuntimeError(f"unresolved dependencies in {usd}: {list(unresolved)}")
         if authored_external:
