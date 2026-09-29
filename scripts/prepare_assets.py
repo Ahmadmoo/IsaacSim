@@ -1,8 +1,8 @@
 """Milestone 0: build the robot USD and the asset manifest.
 
-Converts the official Doosan A0509 URDF to USD, mounts the Robotiq 2F-85 (Physx_parallel_grip) through a flange
-adapter, adds the wrist-camera housing, and writes assets/generated/asset_manifest.json, which every other script
-reads. Then run scripts/calibrate_gripper.py.
+Converts the official Doosan A0509 URDF to USD, bundles the Robotiq asset, mounts it through a flange adapter,
+adds the wrist-camera housing, and writes assets/generated/asset_manifest.json. The resulting directory can be
+copied as a unit and reused without either source checkout. Then run scripts/calibrate_gripper.py.
 
     python scripts/prepare_assets.py --doosan ~/src/doosan-robot2 --robotiq ~/src/IsaacSim-assets
 """
@@ -55,7 +55,7 @@ os.makedirs(out, exist_ok=True)
 t0 = time.time()
 
 urdf_path, urdf_src = ab.prepare_urdf(args.doosan, os.path.join(out, "urdf"), base_name=cfg.robot.arm_base_link)
-ab.check_robotiq_lfs(args.robotiq)
+robotiq_bundle = ab.bundle_robotiq(args.robotiq, out)
 
 usd_dir = os.path.join(out, "usd")
 arm_usd = os.path.join(usd_dir, "a0509_arm", "a0509_arm.usda")
@@ -73,7 +73,7 @@ print(f"[prepare] arm USD {arm_usd}")
 variants = {}
 for with_cam in (True, False):
     path = os.path.join(usd_dir, "a0509_2f85_cam.usda" if with_cam else "a0509_2f85.usda")
-    paths = ab.build_combined(arm_usd, args.robotiq, path, cfg.robot, cfg.gripper, cfg.camera, with_camera=with_cam)
+    paths = ab.build_combined(arm_usd, robotiq_bundle, path, cfg.robot, cfg.gripper, cfg.camera, with_camera=with_cam)
     paths["pad_material"] = ab.bind_pad_material(path, paths, cfg.gripper.pad_links, cfg.physics.pad_static_friction,
                                                  cfg.physics.pad_dynamic_friction, cfg.physics.restitution)
     variants[with_cam] = (path, paths)
@@ -98,6 +98,8 @@ if kin_diff > 1e-6:
     print(f"[prepare] WARNING: your URDF differs from the shipped kinematics snapshot by {kin_diff:.2e}; using the "
           "URDF-derived model. Re-run scripts/fit_arm_spheres.py for matching collision spheres.")
 kinematics_json = kin_new if kin_diff > 1e-6 else shipped["kinematics_json"]
+dependencies = ab.validate_asset_bundle(out, [arm_usd, os.path.join(robotiq_bundle, ab.ROBOTIQ_CFG_REL),
+                                               variants[True][0], variants[False][0]])
 
 try:
     from isaaclab.utils.version import get_isaac_sim_version
@@ -115,6 +117,8 @@ manifest = {
     "robot_usd": rel(variants[True][0], out),
     "robot_usd_no_camera": rel(variants[False][0], out),
     "arm_usd": rel(arm_usd, out),
+    "robotiq_usd": rel(os.path.join(robotiq_bundle, ab.ROBOTIQ_CFG_REL), out),
+    "usd_dependencies": dependencies,
     "prim_paths": paths,
     "prim_paths_no_camera": variants[False][1],
     "arm_joint_names": list(cfg.robot.arm_joint_names),
