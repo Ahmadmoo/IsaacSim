@@ -116,6 +116,7 @@ class LayoutCfg:
     target_y_range: list = field(default_factory=lambda: [-0.25, 0.05])
     # Object pool: one prim per entry per env. Episode selects the active one; others are parked.
     object_pool_dims: list = field(default_factory=lambda: [[0.040, 0.040, 0.050]])
+    object_pool_shapes: list = field(default_factory=lambda: ["box"])
     tray_interior: list = field(default_factory=lambda: [0.22, 0.18])
     tray_rim_height: float = 0.03
     tray_wall: float = 0.005
@@ -272,6 +273,8 @@ class RandomizationCfg:
     enabled: list = field(default_factory=list)
     object_width: list = field(default_factory=lambda: [0.030, 0.060])
     object_height: list = field(default_factory=lambda: [0.030, 0.080])
+    # Upright pickable solids for the 'object_shape' family: box, cylinder, hex_prism (across-flats = width).
+    object_shapes: list = field(default_factory=lambda: ["box", "cylinder", "hex_prism"])
     object_mass: list = field(default_factory=lambda: [0.05, 0.25])
     object_static_friction: list = field(default_factory=lambda: [0.3, 0.9])
     pad_static_friction: list = field(default_factory=lambda: [0.5, 1.1])

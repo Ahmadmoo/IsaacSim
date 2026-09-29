@@ -39,7 +39,7 @@ parser.add_argument("--views", nargs="*", default=None, choices=["fixed", "wrist
 parser.add_argument("--candidates", default="regenerated", choices=["regenerated", "shared"])
 parser.add_argument("--plan-view", default=None, choices=["fixed", "wrist", "both"])
 parser.add_argument("--fixed-pose", action="store_true")
-parser.add_argument("--object-pool", type=int, default=6, help="block sizes when the 'object' family is on")
+parser.add_argument("--object-pool", type=int, default=6, help="sizes per shape when the 'object' family is on")
 parser.add_argument("--shard-size", type=int, default=50)
 parser.add_argument("--no-traj", action="store_true")
 AppLauncher.add_app_launcher_args(parser)
@@ -56,8 +56,11 @@ C.realizations = args.realizations or C.realizations
 C.perception_sources = list(args.perception or C.perception_sources)
 if args.families is not None:
     cfg.randomization.enabled = list(args.families)
-if "object" in cfg.randomization.enabled and len(cfg.layout.object_pool_dims) == 1:
-    cfg.layout.object_pool_dims = make_object_pool(cfg, k=args.object_pool, seed=C.seed)
+fam = cfg.randomization.enabled
+if ("object" in fam or "object_shape" in fam) and len(cfg.layout.object_pool_dims) == 1:
+    cfg.layout.object_pool_dims, cfg.layout.object_pool_shapes = make_object_pool(
+        cfg, k=args.object_pool if "object" in fam else 1, seed=C.seed,
+        shapes=cfg.randomization.object_shapes if "object_shape" in fam else ["box"])
 views = list(args.views or ([] if cfg.camera.mode == "none" else [cfg.camera.mode]))
 view_cams = {c for v in views for c in VIEW_CAMS[v]}
 plan_view = args.plan_view or ("both" if len(view_cams) == 2 else (views[0] if views else None))

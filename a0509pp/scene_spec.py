@@ -13,7 +13,7 @@ import numpy as np
 from .geometry import box_corners, rot_z
 
 FAMILIES = [
-    "object", "object_color", "object_mass", "obstacles", "object_friction", "pad_friction", "lighting", "depth", "calibration",
+    "object", "object_shape", "object_color", "object_mass", "obstacles", "object_friction", "pad_friction", "lighting", "depth", "calibration",
     "fixed_camera", "joint_noise", "command_delay", "camera_delay", "servo",
 ]
 HIDDEN_FAMILIES = {"object_friction", "pad_friction", "servo", "command_delay", "object_mass"}
@@ -26,6 +26,7 @@ class ObjectSpec:
     xy: list
     yaw: float
     color: list = field(default_factory=lambda: [0.85, 0.20, 0.15])
+    shape: str = "box"
 
 
 @dataclass
@@ -155,6 +156,8 @@ class SceneSampler:
         self.L = cfg.layout
         self.R = cfg.randomization
         self.object_pool = [list(d) for d in (object_pool_dims or self.L.object_pool_dims)]
+        shapes = list(self.L.object_pool_shapes or [])
+        self.object_shapes = shapes if len(shapes) == len(self.object_pool) else ["box"] * len(self.object_pool)
         self.obstacle_pool = [list(d) for d in (obstacle_pool_dims or self.L.obstacle_pool_dims)]
 
     def realization(self, rng, rid, families):
@@ -184,7 +187,10 @@ class SceneSampler:
         rng = np.random.default_rng([seed, index])
         scene_id = f"s{seed:05d}_{index:06d}"
         for _ in range(max_tries):
-            k = int(rng.integers(len(self.object_pool))) if "object" in families else 0
+            kinds = list(dict.fromkeys(self.object_shapes))
+            kind = kinds[int(rng.integers(len(kinds)))] if "object_shape" in families else kinds[0]
+            ks = [i for i, s in enumerate(self.object_shapes) if s == kind]
+            k = ks[int(rng.integers(len(ks)))] if "object" in families else ks[0]
             dims = self.object_pool[k]
             if fixed_pose:
                 xy, yaw = list(self.L.target_default_xy), 0.0
@@ -192,7 +198,7 @@ class SceneSampler:
                 xy = [float(rng.uniform(*self.L.target_x_range)), float(rng.uniform(*self.L.target_y_range))]
                 yaw = float(rng.uniform(0.0, 2 * math.pi))
             color = rng.uniform(0.1, 0.95, 3).round(3).tolist() if "object_color" in families else [0.85, 0.20, 0.15]
-            target = ObjectSpec(k, list(dims), xy, yaw, color)
+            target = ObjectSpec(k, list(dims), xy, yaw, color, self.object_shapes[k])
             obstacles = []
             if "obstacles" in families:
                 n_obs = int(rng.integers(self.L.num_obstacles[0], self.L.num_obstacles[1] + 1))
@@ -250,21 +256,26 @@ def delta_to_T(delta6):
 
 def default_spec(cfg, scene_id="default"):
     L = cfg.layout
-    t = ObjectSpec(0, list(L.object_pool_dims[0]), list(L.target_default_xy), 0.0)
+    t = ObjectSpec(0, list(L.object_pool_dims[0]), list(L.target_default_xy), 0.0, shape=SceneSampler(cfg).object_shapes[0])
     spec = EpisodeSpec(scene_id=scene_id, seed=0, target=t, tray_xy=list(L.tray_center_xy),
                        target_hint_xy=list(L.target_default_xy))
     spec.realizations = [SceneSampler(cfg).realization(np.random.default_rng(0), 0, [])]
     return spec
 
 
-def make_object_pool(cfg, k=6, seed=0):
-    """Deterministic pool of block sizes spanning the randomisation ranges; entry 0 is the default block."""
+def make_object_pool(cfg, k=6, seed=0, shapes=("box",)):
+    """Deterministic pool of pickable solids: for each shape, the default size first, then k-1 sizes spanning the
+    randomisation ranges. Returns (dims, shapes)."""
+    from .geometry import shape_dims
+
     rng = np.random.default_rng([seed, 7919])
-    R = cfg.randomization
-    pool = [list(cfg.layout.target_default_dims)]
-    for _ in range(k - 1):
-        w = float(rng.uniform(*R.object_width))
-        d = float(rng.uniform(*R.object_width))
-        h = float(rng.uniform(*R.object_height))
-        pool.append([round(w, 4), round(d, 4), round(h, 4)])
-    return pool
+    R, w0, d0, h0 = cfg.randomization, *cfg.layout.target_default_dims
+    dims, kinds = [], []
+    for s in shapes:
+        dims.append([round(float(x), 4) for x in shape_dims(s, w0, d0, h0)])
+        kinds.append(s)
+        for _ in range(k - 1):
+            w, d, h = (float(rng.uniform(*R.object_width)), float(rng.uniform(*R.object_width)), float(rng.uniform(*R.object_height)))
+            dims.append([round(float(x), 4) for x in shape_dims(s, w, d, h)])
+            kinds.append(s)
+    return dims, kinds

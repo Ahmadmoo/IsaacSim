@@ -209,6 +209,48 @@ def look_at_ros(eye, target, up=(0.0, 0.0, 1.0)):
     return np.stack([x, y, z], axis=1)
 
 
+SHAPES = ("box", "cylinder", "hex_prism")
+
+
+def shape_dims(shape, width, depth, height):
+    """Bounding-box dims (x, y, z). Cylinder: diameter = width. Hexagonal prism: across-flats = width along x."""
+    if shape == "cylinder":
+        return [width, width, height]
+    if shape == "hex_prism":
+        return [width, width * 2.0 / np.sqrt(3.0), height]
+    return [width, depth, height]
+
+
+def shape_vertices(shape, dims, n=24):
+    """Local-frame vertices of the solid's convex hull (upright, centred)."""
+    x, y, z = np.asarray(dims, float) / 2.0
+    if shape == "cylinder":
+        a = np.linspace(0.0, 2 * np.pi, n, endpoint=False)
+        ring = np.stack([x * np.cos(a), x * np.sin(a)], 1)
+    elif shape == "hex_prism":
+        a = np.radians(30.0 + 60.0 * np.arange(6))
+        ring = np.stack([y * np.cos(a), y * np.sin(a)], 1)
+    else:
+        ring = np.array([[-x, -y], [x, -y], [x, y], [-x, y]])
+    return np.concatenate([np.c_[ring, np.full(len(ring), -z)], np.c_[ring, np.full(len(ring), z)]])
+
+
+def shape_inertia(shape, m, dims):
+    """Principal inertia (Ixx, Iyy, Izz) about the centre of mass."""
+    a, b, h = dims
+    if shape == "cylinder":
+        r = a / 2.0
+        return np.array([m * (3 * r * r + h * h) / 12.0] * 2 + [m * r * r / 2.0])
+    if shape == "hex_prism":
+        R = b / 2.0
+        return np.array([m * (5 * R * R / 24.0 + h * h / 12.0)] * 2 + [5 * m * R * R / 12.0])
+    return np.array([m / 12.0 * (b * b + h * h), m / 12.0 * (a * a + h * h), m / 12.0 * (a * a + b * b)])
+
+
+def solid_corners(center, R, dims, shape="box"):
+    return np.asarray(center) + shape_vertices(shape, dims) @ np.asarray(R).T
+
+
 def box_corners(center, R, dims):
     h = np.asarray(dims, dtype=float) / 2.0
     signs = np.array([[sx, sy, sz] for sx in (-1, 1) for sy in (-1, 1) for sz in (-1, 1)], dtype=float)

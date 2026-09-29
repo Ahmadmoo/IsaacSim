@@ -27,7 +27,7 @@ except ImportError:  # GPU-free tests (tests/fake_env.py) override every method 
 from ..candidates import validity_mask
 from ..config import DATASET_VERSION, PROVISIONAL
 from ..features import FEATURE_NAMES, FeatureComputer
-from ..geometry import make_T, mat_to_quat, pose7_to_T_batch, quat_from_yaw, quat_to_mat, quat_to_mat_batch
+from ..geometry import make_T, mat_to_quat, pose7_to_T_batch, quat_from_yaw, quat_to_mat, quat_to_mat_batch, shape_inertia, shape_vertices
 from ..labels import assemble_labels, placement_check
 from ..models import Models, load_manifest
 from ..monitor import Monitor
@@ -57,11 +57,6 @@ def _np(x):
 
 def _torch(x):
     return x.torch if hasattr(x, "torch") else x
-
-
-def _box_inertia(m, dims):
-    a, b, c = dims
-    return np.array([m / 12.0 * (b * b + c * c), m / 12.0 * (a * a + c * c), m / 12.0 * (a * a + b * b)])
 
 
 class PickPlaceEnv:
@@ -291,7 +286,7 @@ class PickPlaceEnv:
         obj.set_masses_index(masses=self._t(m), env_ids=ids)
         inert = np.zeros((len(env_ids), 1, 9))
         for i, mi in enumerate(m[:, 0]):
-            inert[i, 0, [0, 4, 8]] = _box_inertia(mi, dims)
+            inert[i, 0, [0, 4, 8]] = shape_inertia(self._shape(k), mi, dims)
         obj.set_inertias_index(inertias=self._t(inert), env_ids=ids)
         view = obj.root_view
         mats = wp.to_torch(view.get_material_properties()).clone()
@@ -348,11 +343,16 @@ class PickPlaceEnv:
             self._cur_real[e] = dataclasses.replace(reals[e])
 
     # ================================================================== scene layout and visuals
+    def _shape(self, k):
+        shapes = list(self.cfg.layout.object_pool_shapes or [])
+        return shapes[k] if len(shapes) == len(self.cfg.layout.object_pool_dims) else "box"
+
     def _target_index(self, spec):
         k = int(spec.target.pool_index)
         dims = self.cfg.layout.object_pool_dims[k]
-        if np.max(np.abs(np.asarray(dims) - np.asarray(spec.target.dims))) > 1e-6:
-            raise ValueError(f"spec target dims {spec.target.dims} do not match object pool entry {k} {dims}")
+        if np.max(np.abs(np.asarray(dims) - np.asarray(spec.target.dims))) > 1e-6 or self._shape(k) != getattr(spec.target, "shape", "box"):
+            raise ValueError(f"spec target {spec.target.dims} {getattr(spec.target, 'shape', 'box')} does not match object pool entry {k} "
+                             f"{dims} {self._shape(k)}")
         return k
 
     def _place_layout(self, spec):
@@ -863,7 +863,7 @@ class PickPlaceEnv:
             newly = plan_done & (plan_done_tick < 0)
             plan_done_tick[newly] = k
             R_obj = quat_to_mat_batch(st["obj_pose"][:, 3:])
-            corners = np.array([[sx, sy, sz] for sx in (-1, 1) for sy in (-1, 1) for sz in (-1, 1)]) * dims / 2.0
+            corners = shape_vertices(self._shape(k_t), dims)
             bottom = (st["obj_pose"][:, None, :3] + np.einsum("eij,cj->eci", R_obj, corners))[:, :, 2].min(1)
             T_tcp = st["T_tcp"]
             rel = np.einsum("eji,ej->ei", T_tcp[:, :3, :3], st["obj_pose"][:, :3] - T_tcp[:, :3, 3])
@@ -936,7 +936,7 @@ class PickPlaceEnv:
     def _final_eval(self, e, st, mon, settled, t, plan_completed, dims):
         cfg, lc = self.cfg, self.cfg.labels
         pose = st["obj_pose"][e]
-        inside, supported, det = placement_check(pose[:3], pose[3:], dims, self.spec.tray_xy, cfg.layout, lc)
+        inside, supported, det = placement_check(pose[:3], pose[3:], dims, self.spec.tray_xy, cfg.layout, lc, self._shape(self.k_target))
         rel_z = mon.state[e].release_tcp_z
         tcp_z = float(st["T_tcp"][e, 2, 3])
         released = bool(st["pad_obj_force_max"][e] < 0.1 * cfg.monitor.grasp_min_force and st["aperture"][e] >= lc.open_aperture_min)

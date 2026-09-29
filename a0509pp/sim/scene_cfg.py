@@ -33,6 +33,47 @@ def wrist_camera_pose(ccfg):
     return tuple(float(x) for x in ccfg.wrist_pos), tuple(float(x) for x in mat_to_quat(R))
 
 
+_HEX = []
+
+
+def hex_prism_cfg():
+    """Spawner config for an upright hexagonal prism (convex-hull collider); flats face +-x, across-flats = width."""
+    if _HEX:
+        return _HEX[0]
+    from dataclasses import MISSING
+
+    from isaaclab.sim.spawners.shapes.shapes import _spawn_geom_from_prim_type
+    from isaaclab.sim.spawners.shapes.shapes_cfg import ShapeCfg
+    from isaaclab.sim.utils import clone, get_current_stage
+    from isaaclab.utils import configclass
+    from pxr import Gf, UsdPhysics
+
+    def convex_hull(path, stage=None):
+        UsdPhysics.MeshCollisionAPI.Apply(stage.GetPrimAtPath(path)).CreateApproximationAttr().Set("convexHull")
+
+    @clone
+    def spawn_hex_prism(prim_path, cfg, translation=None, orientation=None, **kwargs):
+        from ..geometry import shape_vertices
+
+        stage = get_current_stage()
+        v = shape_vertices("hex_prism", (cfg.across_flats, cfg.across_flats * 2.0 / math.sqrt(3.0), cfg.height))
+        idx = [i for j in range(6) for i in (j, (j + 1) % 6, 6 + (j + 1) % 6, 6 + j)] + [5, 4, 3, 2, 1, 0] + list(range(6, 12))
+        attributes = {"points": [Gf.Vec3f(*map(float, p)) for p in v], "faceVertexCounts": [4] * 6 + [6, 6],
+                      "faceVertexIndices": idx, "doubleSided": True}
+        _spawn_geom_from_prim_type(prim_path, cfg, "Mesh", attributes, translation, orientation, stage=stage,
+                                   geometry_schema_func=convex_hull)
+        return stage.GetPrimAtPath(prim_path)
+
+    @configclass
+    class HexPrismCfg(ShapeCfg):
+        func: object = spawn_hex_prism
+        across_flats: float = MISSING
+        height: float = MISSING
+
+    _HEX.append(HexPrismCfg)
+    return HexPrismCfg
+
+
 def _joint_pos_dict(cfg, home_q, mimic):
     d = {n: float(v) for n, v in zip(cfg.robot.arm_joint_names, home_q)}
     d[cfg.gripper.finger_joint] = 0.0
@@ -154,23 +195,31 @@ def build_scene_cfg(cfg, manifest, home_q, num_envs, grip_torque, camera_mode=No
 
     # ---------------------------------------------------------------- target object pool (dynamic)
     obj_names = []
+    shapes = list(L.object_pool_shapes or [])
+    shapes = shapes if len(shapes) == len(L.object_pool_dims) else ["box"] * len(L.object_pool_dims)
     for k, (dims, pos) in enumerate(zip(L.object_pool_dims, object_park_positions(L, L.object_pool_dims))):
         name = f"object_{k}"
         obj_names.append(name)
+        common = dict(
+            rigid_props=PhysxRigidBodyPropertiesCfg(
+                linear_damping=P.object_linear_damping, angular_damping=0.05, max_depenetration_velocity=0.5,
+                solver_position_iteration_count=P.position_iterations, solver_velocity_iteration_count=P.velocity_iterations,
+            ),
+            mass_props=MassPropertiesCfg(mass=float(L.target_default_mass)),
+            collision_props=PhysxCollisionPropertiesCfg(contact_offset=P.object_contact_offset, rest_offset=P.object_rest_offset),
+            physics_material=mat(P.object_static_friction, P.object_dynamic_friction),
+            visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(0.85, 0.20, 0.15), roughness=0.5),
+            activate_contact_sensors=True,
+        )
+        if shapes[k] == "cylinder":
+            spawn = sim_utils.CylinderCfg(radius=float(dims[0]) / 2.0, height=float(dims[2]), axis="Z", **common)
+        elif shapes[k] == "hex_prism":
+            spawn = hex_prism_cfg()(across_flats=float(dims[0]), height=float(dims[2]), **common)
+        else:
+            spawn = sim_utils.CuboidCfg(size=tuple(float(x) for x in dims), **common)
         setattr(scene, name, RigidObjectCfg(
             prim_path=f"{{ENV_REGEX_NS}}/Object_{k}",
-            spawn=sim_utils.CuboidCfg(
-                size=tuple(float(x) for x in dims),
-                rigid_props=PhysxRigidBodyPropertiesCfg(
-                    linear_damping=P.object_linear_damping, angular_damping=0.05, max_depenetration_velocity=0.5,
-                    solver_position_iteration_count=P.position_iterations, solver_velocity_iteration_count=P.velocity_iterations,
-                ),
-                mass_props=MassPropertiesCfg(mass=float(L.target_default_mass)),
-                collision_props=PhysxCollisionPropertiesCfg(contact_offset=P.object_contact_offset, rest_offset=P.object_rest_offset),
-                physics_material=mat(P.object_static_friction, P.object_dynamic_friction),
-                visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(0.85, 0.20, 0.15), roughness=0.5),
-                activate_contact_sensors=True,
-            ),
+            spawn=spawn,
             init_state=RigidObjectCfg.InitialStateCfg(pos=pos),
         ))
 

@@ -36,8 +36,8 @@ args = parser.parse_args()
 
 cfg = load_cfg(None, ["camera.width=320", "camera.height=240", "camera.net_width=160", "camera.net_height=120",
                       "camera.history=2", "collect.realizations=2", "collect.traj_decimation=8"])
-cfg.randomization.enabled = ["object", "object_color", "object_mass", "obstacles", "object_friction", "pad_friction", "depth", "joint_noise", "camera_delay"]
-cfg.layout.object_pool_dims = make_object_pool(cfg, k=4, seed=0)
+cfg.randomization.enabled = ["object", "object_shape", "object_color", "object_mass", "obstacles", "object_friction", "pad_friction", "depth", "joint_noise", "camera_delay"]
+cfg.layout.object_pool_dims, cfg.layout.object_pool_shapes = make_object_pool(cfg, k=3, seed=0, shapes=["box", "cylinder", "hex_prism"])
 cfg.collect.split = [0.4, 0.2, 0.2, 0.2]
 shutil.rmtree(args.out, ignore_errors=True)
 env = FakeEnv(cfg, num_envs=args.envs, camera_mode="both")

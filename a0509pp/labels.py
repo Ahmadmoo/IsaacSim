@@ -4,14 +4,14 @@ from __future__ import annotations
 
 import numpy as np
 
-from .geometry import box_corners, quat_to_mat
+from .geometry import quat_to_mat, solid_corners
 from .monitor import EXEC_FAILURES, SIM_ERRORS, TASK_FAILURES
 
 
-def placement_check(obj_pos, obj_quat, dims, tray_xy, layout, lcfg):
-    """Footprint inside the tray interior with margin (true geometry, all 8 corners) and supported by the floor."""
+def placement_check(obj_pos, obj_quat, dims, tray_xy, layout, lcfg, shape="box"):
+    """Footprint inside the tray interior with margin (true geometry, all hull vertices) and supported by the floor."""
     R = quat_to_mat(obj_quat)
-    corners = box_corners(np.asarray(obj_pos), R, dims)
+    corners = solid_corners(np.asarray(obj_pos), R, dims, shape)
     ix, iy = layout.tray_interior
     m = lcfg.footprint_margin
     inside = bool(np.all(np.abs(corners[:, 0] - tray_xy[0]) <= ix / 2.0 - m) and np.all(np.abs(corners[:, 1] - tray_xy[1]) <= iy / 2.0 - m))
