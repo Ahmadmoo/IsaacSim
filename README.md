@@ -1,7 +1,7 @@
 # A0509 + Robotiq 2F-85 pick-and-place simulation (Isaac Sim 6.1 / Isaac Lab 3.0 EA)
 
 Camera-based pick-and-place with counterfactual candidate rollouts, built to the specification
-`a0509_2f85_simulation_specification.md` (revision 1, 28 Sep 2026). The Isaac Lab calls were checked against the
+`a0509_2f85_simulation_specification.md`. The Isaac Lab calls were checked against the
 `v3.0.0-EA` source. They have not been run on a GPU yet. Plan to fix small API details on the first run
 (section 8 lists where to look).
 
