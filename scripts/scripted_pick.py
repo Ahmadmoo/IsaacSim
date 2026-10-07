@@ -30,8 +30,9 @@ parser.add_argument("--jitter", type=float, nargs=2, default=[0.01, 10.0], metav
 parser.add_argument("--perception", default=None, choices=["camera", "privileged"])
 parser.add_argument("--select", default="shortest", choices=["shortest", "first", "clearance"])
 parser.add_argument("--out", default=os.path.join(ROOT, "outputs", "m2"))
-parser.add_argument("--show-cams", action="store_true", help="live RGB | depth window of every camera (PNGs if OpenCV has no GUI)")
-parser.add_argument("--show-hz", type=float, default=10.0)
+parser.add_argument("--show-cams", action="store_true", help="live RGB | depth | events window of every camera (PNGs if OpenCV has no GUI)")
+parser.add_argument("--show-hz", type=float, default=30.0, help="camera frames per simulated second (also the event frame rate)")
+parser.add_argument("--event-threshold", type=float, default=0.15, help="log-intensity contrast threshold C")
 AppLauncher.add_app_launcher_args(parser)
 args = parser.parse_args()
 cfg = cfg_from_args(args)
@@ -58,18 +59,27 @@ if args.show_cams:
     except ImportError:
         cv2 = None
 
+    ref = {}
+
     def show(frames):
         rows = []
-        for f in frames.values():
+        for name, f in frames.items():
             d = f["depth"].astype(np.float32)
             v = np.isfinite(d) & (d > 0)
             lo, hi = np.percentile(d[v], [1, 99]) if v.any() else (0.0, 1.0)
             g = np.where(v, 255 - np.clip((d - lo) / max(hi - lo, 1e-6), 0, 1) * 255, 0).astype(np.uint8)
             dimg = cv2.applyColorMap(g, cv2.COLORMAP_TURBO)[..., ::-1] if cv2 else np.repeat(g[..., None], 3, 2)
-            rows.append(np.hstack([f["rgb"], dimg]))
+            L = np.log(f["rgb"].astype(np.float32) @ np.float32([0.299, 0.587, 0.114]) + 1.0)
+            d = L - ref.setdefault(name, L.copy())
+            n = np.floor(np.abs(d) / args.event_threshold)
+            ref[name] += np.sign(d) * n * args.event_threshold
+            a = (np.minimum(n, 3) / 3 * 255).astype(np.uint8)
+            z = np.zeros_like(a)
+            ev = np.where((d > 0)[..., None], np.stack([a, z, z], -1), np.stack([z, a // 2, a], -1))
+            rows.append(np.hstack([f["rgb"], dimg, ev]))
         img = np.vstack(rows)
         try:
-            cv2.imshow("cameras: RGB | depth", img[..., ::-1])
+            cv2.imshow("cameras: RGB | depth | events", img[..., ::-1])
             cv2.waitKey(1)
         except Exception:
             save_png(os.path.join(args.out, "cams", f"{show.n:05d}.png"), img)
@@ -94,6 +104,8 @@ for i in range(args.trials):
         spec.target_hint_xy = list(spec.target.xy)
     t0 = time.time()
     env.reset(spec)
+    if args.show_cams:
+        ref.clear()
     percep = env.perceive(src)
     cands, pool = env.propose_candidates(percep)
     row = {"trial": i, "scene_id": spec.scene_id, "target_xy": spec.target.xy, "target_yaw": spec.target.yaw,
