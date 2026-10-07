@@ -33,6 +33,9 @@ parser.add_argument("--out", default=os.path.join(ROOT, "outputs", "m2"))
 parser.add_argument("--show-cams", action="store_true", help="live RGB | depth | events window of every camera (PNGs if OpenCV has no GUI)")
 parser.add_argument("--show-hz", type=float, default=30.0, help="camera frames per simulated second (also the event frame rate)")
 parser.add_argument("--event-threshold", type=float, default=0.15, help="log-intensity contrast threshold C")
+parser.add_argument("--events", default="simple", choices=["simple", "evis"],
+                    help="event model: built-in frame difference, or the EVIS core (pip install -e <evis repo> --no-deps)")
+parser.add_argument("--event-noise", action="store_true", help="EVIS sensor noise (threshold mismatch, leak, shot, hot pixels)")
 AppLauncher.add_app_launcher_args(parser)
 args = parser.parse_args()
 cfg = cfg_from_args(args)
@@ -60,6 +63,15 @@ if args.show_cams:
         cv2 = None
 
     ref = {}
+    if args.events == "evis":
+        import torch
+        from dvs_gen.dvs import BatchedMultiCamProcessor, DVSNoiseCfg, DVSNoiseModel, GeneralDVSRecorder
+
+        recorder = GeneralDVSRecorder(os.path.join(args.out, "events"))
+        procs = {c: BatchedMultiCamProcessor(recorder, c, args.event_threshold, DVSNoiseModel(
+            DVSNoiseCfg(intensity_scale=255.0), args.event_threshold) if args.event_noise else None) for c in env.cams}
+        for proc in procs.values():
+            proc.stash_events = True
 
     def show(frames):
         rows = []
@@ -69,10 +81,16 @@ if args.show_cams:
             lo, hi = np.percentile(d[v], [1, 99]) if v.any() else (0.0, 1.0)
             g = np.where(v, 255 - np.clip((d - lo) / max(hi - lo, 1e-6), 0, 1) * 255, 0).astype(np.uint8)
             dimg = cv2.applyColorMap(g, cv2.COLORMAP_TURBO)[..., ::-1] if cv2 else np.repeat(g[..., None], 3, 2)
-            L = np.log(f["rgb"].astype(np.float32) @ np.float32([0.299, 0.587, 0.114]) + 1.0)
-            d = L - ref.setdefault(name, L.copy())
-            n = np.floor(np.abs(d) / args.event_threshold)
-            ref[name] += np.sign(d) * n * args.event_threshold
+            if args.events == "evis":
+                procs[name](torch.from_numpy(f["rgb"][None].astype(np.float32)), env._tick * env.control_dt)
+                m = procs[name].last_masks
+                pos, neg = (m[0][0].cpu().numpy(), m[1][0].cpu().numpy()) if m else (np.zeros(g.shape, bool),) * 2
+                n, d = (pos | neg) * 3.0, pos.astype(float) - neg
+            else:
+                L = np.log(f["rgb"].astype(np.float32) @ np.float32([0.299, 0.587, 0.114]) + 1.0)
+                d = L - ref.setdefault(name, L.copy())
+                n = np.floor(np.abs(d) / args.event_threshold)
+                ref[name] += np.sign(d) * n * args.event_threshold
             a = (np.minimum(n, 3) / 3 * 255).astype(np.uint8)
             z = np.zeros_like(a)
             ev = np.where((d > 0)[..., None], np.stack([a, z, z], -1), np.stack([z, a // 2, a], -1))
@@ -106,6 +124,9 @@ for i in range(args.trials):
     env.reset(spec)
     if args.show_cams:
         ref.clear()
+        if args.events == "evis":
+            for proc in procs.values():
+                proc.reset_envs(torch.tensor([0]))
     percep = env.perceive(src)
     cands, pool = env.propose_candidates(percep)
     row = {"trial": i, "scene_id": spec.scene_id, "target_xy": spec.target.xy, "target_yaw": spec.target.yaw,
@@ -114,6 +135,8 @@ for i in range(args.trials):
     if cands:
         c = pick[args.select](cands)
         r = env.run_candidate(c, env.nominal_realization(), record_traj=False)
+        if args.show_cams and args.events == "evis":
+            recorder.flush_episode(0, i)
         row.update({"success": r["labels"]["y_task"], "exec": r["labels"]["y_exec"], "failure": r["labels"]["failure_type"],
                     "duration": c.duration, "route": c.route, "branch": c.branch_name,
                     "max_track_err": float(np.max(r["monitor"]["max_track_err"])), "max_slip": r["monitor"]["max_slip"], "final": r["final"]})
